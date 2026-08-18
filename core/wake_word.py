@@ -5,13 +5,11 @@ from pvrecorder import PvRecorder
 
 oww_model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
 
-
 def wait_for_wake_word():
     """
     Blocks until the wake word "Hey Jarvis" is detected, then returns.
     """
     time.sleep(0.5)
-
     try:
         recorder = PvRecorder(device_index=0, frame_length=1280)
         recorder.start()
@@ -21,19 +19,16 @@ def wait_for_wake_word():
         return
 
     print("Waiting for wake word... (say 'Hey Jarvis')")
-
     try:
         while True:
             pcm = recorder.read()
             audio = np.array(pcm, dtype=np.int16)
             prediction = oww_model.predict(audio)
             score = prediction["hey_jarvis"]
-
-            if score > 0.1:
-                print(f"Score: {score:.3f}")
-
-            if score > 0.35:
-                print("Wake word detected!")
+            
+            # Hyper-sensitive threshold for soft/low-volume calls
+            if score > 0.12:
+                print(f"Wake word detected! (Score: {score:.3f})")
                 break
     finally:
         recorder.stop()

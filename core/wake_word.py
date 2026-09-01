@@ -2,7 +2,7 @@ import time
 import numpy as np
 from openwakeword.model import Model
 from pvrecorder import PvRecorder
-
+from core.event_bus import event_bus
 oww_model = Model(wakeword_models=["hey_jarvis"], inference_framework="onnx")
 
 
@@ -33,7 +33,9 @@ def wait_for_wake_word():
                 print(f"Score: {score:.3f}")
 
             if score > 0.35:
+                event_bus.emit_state("WAKE", "Wake word detected")
                 print("Wake word detected!")
+                event_bus.emit_state("IDLE", "Waiting for 'Hey Jarvis'")
                 break
     finally:
         recorder.stop()

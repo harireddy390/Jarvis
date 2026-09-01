@@ -1,30 +1,53 @@
+import sys
 import ctypes
 ctypes.windll.shcore.SetProcessDpiAwareness(1)
 
+import threading
+import time
 import pyautogui
 import pyttsx3
 import speech_recognition as sr
+from PySide6.QtWidgets import QApplication
+
 from core.brain import think
 from core.logger import logger
+from core.wake_word import wait_for_wake_word
+from core.planner import needs_planning, execute_plan, continue_last_task
+from core.event_bus import event_bus
+from memory.reminder_manager import set_reminder, get_due_reminders
+from ui.hud_window import JarvisHUD
 
 recognizer = sr.Recognizer()
+speak_lock = threading.Lock()
 
 
 def speak(text: str):
-    print(f"JARVIS: {text}")
-    logger.info(f"JARVIS said: {text}")
-    engine = pyttsx3.init()
-    engine.say(text)
-    engine.runAndWait()
-    engine.stop()
+    with speak_lock:
+        print(f"JARVIS: {text}")
+        logger.info(f"JARVIS said: {text}")
+        event_bus.emit_state("SUCCESS", text[:60])
+        engine = pyttsx3.init()
+        engine.say(text)
+        engine.runAndWait()
+        engine.stop()
 
 
 def listen() -> str:
-    with sr.Microphone() as source:
-        recognizer.adjust_for_ambient_noise(source, duration=1)
-        print("Listening...")
-        audio = recognizer.listen(source)
+    event_bus.emit_state("LISTENING", "Listening...")
+    try:
+        with sr.Microphone() as source:
+            recognizer.adjust_for_ambient_noise(source, duration=1)
+    except OSError as e:
+        logger.error(f"Microphone unavailable: {e}")
+        return ""
 
+    with sr.Microphone() as source:
+        try:
+            audio = recognizer.listen(source, timeout=8, phrase_time_limit=15)
+        except sr.WaitTimeoutError:
+            return ""
+
+    event_bus.emit_state("THINKING", "Transcribing...")
     try:
         text = recognizer.recognize_google(audio)
         print(f"You: {text}")
@@ -37,13 +60,26 @@ def listen() -> str:
         return ""
 
 
-def run():
+def reminder_checker_loop():
+    while True:
+        try:
+            due = get_due_reminders()
+            for r in due:
+                speak(f"Reminder: {r['text']}")
+        except Exception as e:
+            logger.error(f"Reminder checker error: {e}")
+        time.sleep(20)
+
+
+def voice_loop():
     logger.info("JARVIS starting up.")
-    print("JARVIS is online. Say 'exit' to quit.\n")
     conversation_history = []
+    threading.Thread(target=reminder_checker_loop, daemon=True).start()
 
     while True:
         try:
+            wait_for_wake_word()
+            speak("Yes?")
             user_input = listen()
 
             if not user_input:
@@ -54,32 +90,43 @@ def run():
                 logger.info("JARVIS shutting down (user request).")
                 break
 
-            # Verbatim dictation — bypasses the AI entirely so it types
-            # exactly what you said, no paraphrasing risk
-            if user_input.lower().startswith("type ") or user_input.lower().startswith("write "):
-                dictated_text = user_input.split(" ", 1)[1]
+            if user_input.lower().startswith("type this") or user_input.lower().startswith("dictate "):
+                dictated_text = user_input.split(" ", 1)[1] if " " in user_input else ""
                 pyautogui.write(dictated_text, interval=0.02)
                 speak(f"Typed: {dictated_text}")
                 continue
 
-            conversation_history.append({
-                "role": "user",
-                "parts": [{"text": user_input}]
-            })
+            if "continue the task" in user_input.lower() or "continue that task" in user_input.lower():
+                event_bus.emit_state("EXECUTING", "Continuing task...")
+                result = continue_last_task()
+                speak(result)
+                continue
 
+            if needs_planning(user_input):
+                event_bus.emit_state("EXECUTING", "Planning...")
+                speak("Understood, sir. Breaking that down and getting started.")
+                result = execute_plan(user_input)
+                speak(result)
+                conversation_history.append({"role": "user", "parts": [{"text": user_input}]})
+                conversation_history.append({"role": "model", "parts": [{"text": result}]})
+                continue
+
+            event_bus.emit_state("THINKING", "Thinking...")
+            conversation_history.append({"role": "user", "parts": [{"text": user_input}]})
             response = think(conversation_history)
-
-            conversation_history.append({
-                "role": "model",
-                "parts": [{"text": response}]
-            })
-
+            conversation_history.append({"role": "model", "parts": [{"text": response}]})
             speak(response)
 
         except Exception as e:
             logger.error(f"Unexpected crash in main loop: {e}")
-            print(f"Something went wrong: {e}")
+            event_bus.emit_state("ERROR", "Something went wrong")
 
 
 if __name__ == "__main__":
-    run()
+    app = QApplication(sys.argv)
+    hud = JarvisHUD()
+
+    voice_thread = threading.Thread(target=voice_loop, daemon=True)
+    voice_thread.start()
+
+    sys.exit(app.exec())

@@ -14,6 +14,7 @@ from core.logger import logger
 from core.wake_word import wait_for_wake_word
 from core.planner import needs_planning, execute_plan, continue_last_task
 from core.event_bus import event_bus
+from core import confirmations
 from memory.reminder_manager import set_reminder, get_due_reminders
 from ui.hud_window import JarvisHUD
 
@@ -84,6 +85,17 @@ def voice_loop():
 
             if not user_input:
                 continue
+            pending = confirmations.get_current()
+            if pending:
+                lowered = user_input.lower().strip()
+                yes_words = ("yes", "yeah", "yep", "confirm", "sure", "go ahead")
+                no_words = ("no", "nope", "cancel", "don't", "stop")
+                if lowered.startswith(yes_words):
+                    speak(confirmations.resolve_by_voice(True))
+                    continue
+                if lowered.startswith(no_words):
+                    speak(confirmations.resolve_by_voice(False))
+                    continue
 
             if "exit" in user_input.lower() or "shut down" in user_input.lower():
                 speak("Shutting down. Goodbye.")

@@ -4,3 +4,8 @@ __pycache__/
 *.pyc
 debug_output.log
 jarvis.log
+memory/personal_memory.json
+memory/tasks.json
+main_before_voice_fix.py
+
+memory/personal_memory.json

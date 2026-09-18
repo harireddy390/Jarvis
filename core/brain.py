@@ -26,9 +26,29 @@ from tools.browser_control import (
 )
 from tools.document_tool import read_document, find_document
 from tools.app_tool import open_application, run_terminal_command
+from core.code_completer import complete_in_active_context, explain_code_in_active_context
 load_dotenv()
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+
+def explain_code_in_active_tab(instructions: str = "help me with this code and explain the problem") -> str:
+    """
+    Analyzes the user's active browser tab or editor, extracts the problem/context,
+    and explains the logic, algorithmic approach, and time complexity out loud.
+    Use this whenever the user asks for help with code, logic, or explanation.
+    """
+    return explain_code_in_active_context(instructions)
+
+
+def complete_code_in_active_tab(instructions: str = "complete the code for the active problem") -> str:
+    """
+    Analyzes the user's active browser tab or editor, extracts the problem/context,
+    generates the full code solution, and automatically pastes it into the active code editor.
+    Use this whenever the user asks to complete code, solve a problem, or write code directly into their open tab.
+    """
+    return complete_in_active_context(instructions)
+
 
 TIME_SENSITIVE_KEYWORDS = [
     "latest news", "recent news", "today's news", "breaking news",
@@ -166,6 +186,9 @@ def think(conversation_history: list) -> str:
                         read_document, find_document,
                         # system / apps
                         open_application, run_terminal_command,
+                        # active context code completion & explanation
+                        explain_code_in_active_tab,
+                        complete_code_in_active_tab,
                     ]
                 )
             )
